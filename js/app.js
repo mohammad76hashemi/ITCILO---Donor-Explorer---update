@@ -110,7 +110,9 @@ function matches(d, skip) {
 }
 function counts(k) {
   const c = new Map();
-  donors.filter(d => matches(d, k)).forEach(d => arr(d[k]).forEach(v => c.set(v, (c.get(v) || 0) + 1)));
+  const tags = activeTags();
+  donors.filter(d => matches(d, k) && (!tags.length || descriptionMatches(scoreOf(d, tags), tags)))
+    .forEach(d => arr(d[k]).forEach(v => c.set(v, (c.get(v) || 0) + 1)));
   return c;
 }
 /* ---------- "Describe what you are looking for" (keyword detection, no AI) ---------- */
@@ -141,13 +143,20 @@ function detect() {
   [...desc.off].forEach(k => { if (!keys.has(k)) desc.off.delete(k); });
 }
 
+/* Require a match in every detected field; values within a field are alternatives.
+   Scoring still determines order after this eligibility check. */
+function descriptionMatches(match, tags) {
+  const fields = [...new Set(tags.map(t => t.field))];
+  return fields.every(field => match.hits.some(hit => hit.field === field));
+}
+
 function results() {
   let r = donors.filter(d => matches(d));
   const tags = activeTags();
   desc.scores = new Map();
   if (tags.length) {
     r.forEach(d => desc.scores.set(d.id, scoreOf(d, tags)));
-    r = r.filter(d => desc.scores.get(d.id).score > 0);
+    r = r.filter(d => descriptionMatches(desc.scores.get(d.id), tags));
     return r.sort((a, b) => desc.scores.get(b.id).score - desc.scores.get(a.id).score || a.name.localeCompare(b.name));
   }
   if (state.sort === 'type') r.sort((a, b) => String(a.type).localeCompare(b.type) || a.name.localeCompare(b.name));
@@ -303,7 +312,7 @@ function renderList(r) {
   renderPickBar(r);
   if (!r.length) {
     list.append(h('div', { class: 'empty' }, h('strong', { text: 'No organisations match these filters' }),
-      'Try removing a filter or searching for a broader term. ',
+      'Try removing a filter, ignoring a detected keyword, or using a broader description. ',
       h('button', { type: 'button', class: 'btn', text: 'Clear all filters', onclick: clearAll })));
     return;
   }
@@ -620,6 +629,8 @@ function clearAll() {
 }
 
 /* ---------- describe box ---------- */
+const describeHint = $('#describe-hint');
+if (describeHint) describeHint.textContent = 'Describe your organisation and the support you need. Results must match every detected category; alternatives within a category are allowed. Click a detected keyword to ignore it. Matching profiles are ranked by relevance.';
 function renderDescribeTags() {
   const ul = $('#describe-tags');
   ul.replaceChildren();
